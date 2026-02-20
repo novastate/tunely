@@ -75,14 +75,15 @@ export function InviteFriends({ roomCode, roomName, onClose }: InviteFriendsProp
         {/* 1. QR Code - big and prominent */}
         <div className="mb-4 flex flex-col items-center bg-zinc-800/50 p-6 rounded-lg">
           <h3 className="text-lg font-medium mb-4">Scanna för att joina</h3>
-          <QRCodeSVG
-            value={joinUrl}
-            size={200}
-            level="M"
-            bgColor="transparent"
-            fgColor="#ffffff"
-            className="bg-white p-4 rounded"
-          />
+          <div className="bg-white p-4 rounded">
+            <QRCodeSVG
+              value={joinUrl}
+              size={200}
+              level="M"
+              bgColor="#ffffff"
+              fgColor="#000000"
+            />
+          </div>
           <p className="text-sm text-zinc-400 mt-2">Visa QR-koden för dina vänner</p>
         </div>
 

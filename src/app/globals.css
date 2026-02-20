@@ -95,6 +95,11 @@ body {
   opacity: 0;
   animation: fade-in-up 0.3s ease-out forwards;
 }
+/* dnd-kit: disable stagger animation when drag is active so transforms work */
+.stagger-children.dragging > * {
+  animation: none;
+  opacity: 1;
+}
 .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
 .stagger-children > *:nth-child(2) { animation-delay: 50ms; }
 .stagger-children > *:nth-child(3) { animation-delay: 100ms; }

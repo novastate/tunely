@@ -14,6 +14,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -620,6 +621,7 @@ export default function RoomPage() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -820,7 +822,7 @@ export default function RoomPage() {
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
               <SortableContext items={queue.map((q) => q.id)} strategy={verticalListSortingStrategy}>
-                <ul className="space-y-2 stagger-children">
+                <ul className={`space-y-2 stagger-children${activeDragId ? " dragging" : ""}`}>
                   {queue.map((item, i) => (
                     <SortableQueueItem
                       key={item.id}
