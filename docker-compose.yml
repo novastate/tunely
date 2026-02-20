@@ -1,0 +1,30 @@
+version: '3.8'
+services:
+  musikrum:
+    build: .
+    container_name: musikrum
+    restart: unless-stopped
+    volumes:
+      - musikrum-data:/data
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/data/musikrum.db
+      - NEXTAUTH_URL=https://musikrum.u6x.one
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.musikrum.rule=Host(`musikrum.u6x.one`)"
+      - "traefik.http.routers.musikrum.entrypoints=websecure"
+      - "traefik.http.routers.musikrum.tls.certresolver=letsencrypt"
+      - "traefik.http.services.musikrum.loadbalancer.server.port=3000"
+    networks:
+      - traefik
+
+volumes:
+  musikrum-data:
+
+networks:
+  traefik:
+    external: true

@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String?  @unique
+  emailVerified   DateTime?
+  password        String?  // bcrypt hash
+  name            String?
+  image           String?
+
+  // Spotify OAuth (optional)
+  spotifyId          String?  @unique
+  spotifyAccessToken String?
+  spotifyRefreshToken String?
+
+  // Legacy compat
+  displayName     String?
+  imageUrl        String?
+
+  // Profile
+  onboarded       Boolean  @default(false)
+  genres          Json?
+  artists         Json?
+  artistIds       Json?     // Spotify artist IDs for exact matching
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  preferences     Preference[]
+  friends         Friend[]
+  ownedRooms      Room[]         @relation("RoomOwner")
+  roomMemberships RoomMember[]
+  sentRequests    FriendRequest[] @relation("SentRequests")
+  receivedRequests FriendRequest[] @relation("ReceivedRequests")
+}
+
+model Preference {
+  id     String @id @default(cuid())
+  userId String
+  type   String
+  value  String
+  weight Float  @default(1.0)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, type, value])
+}
+
+model Room {
+  id         String       @id @default(cuid())
+  name       String
+  code       String       @unique
+  ownerId    String
+  visibility String       @default("private") // "public" or "private"
+  password   String?      // optional room password
+  createdAt  DateTime     @default(now())
+
+  owner      User         @relation("RoomOwner", fields: [ownerId], references: [id])
+  members    RoomMember[]
+  queue      QueueItem[]
+
+  // Legacy compat - createdBy maps to ownerId
+}
+
+model RoomMember {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String?  // null for guests
+  guestId   String?  // temp ID for guests
+  guestName String?  // guest display name
+  joinedAt  DateTime @default(now())
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+}
+
+model QueueItem {
+  id         String    @id @default(cuid())
+  roomId     String
+  addedBy    String
+  trackId    String
+  trackName  String
+  artistName String
+  albumImage String?
+  durationMs Int
+  votes      Int       @default(0)
+  votedBy    String    @default("[]")
+  playedAt   DateTime?
+  addedAt    DateTime  @default(now())
+  room       Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model Friend {
+  id         String   @id @default(cuid())
+  userId     String
+  friendName String
+  friendId   String?  // linked user ID (if registered)
+  spotifyId  String?
+  email      String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model FriendRequest {
+  id          String   @id @default(cuid())
+  fromUserId  String
+  toUserId    String?  // null if to guest
+  toGuestId   String?  // guest session ID
+  status      String   @default("pending") // pending/accepted/rejected
+  roomId      String?  // which room the request was sent from
+  createdAt   DateTime @default(now())
+
+  fromUser    User     @relation("SentRequests", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser      User?    @relation("ReceivedRequests", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@unique([fromUserId, toUserId])
+  @@unique([fromUserId, toGuestId])
+}
