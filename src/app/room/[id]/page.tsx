@@ -10,12 +10,14 @@ import { InviteFriends } from "@/components/InviteFriends";
 import { getGuestFromCookies } from "@/lib/guest";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
   DragEndEvent,
+  DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -659,7 +661,14 @@ export default function RoomPage() {
     setTimeout(() => setCodeCopied(false), 2000);
   };
 
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(event.active.id as string);
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveDragId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = queue.findIndex((q) => q.id === active.id);
@@ -809,7 +818,7 @@ export default function RoomPage() {
           ) : queue.length === 0 ? (
             <EmptyQueue />
           ) : (
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
               <SortableContext items={queue.map((q) => q.id)} strategy={verticalListSortingStrategy}>
                 <ul className="space-y-2 stagger-children">
                   {queue.map((item, i) => (
@@ -825,6 +834,25 @@ export default function RoomPage() {
                   ))}
                 </ul>
               </SortableContext>
+              <DragOverlay dropAnimation={{ duration: 200, easing: "ease" }}>
+                {activeDragId ? (() => {
+                  const item = queue.find((q) => q.id === activeDragId);
+                  if (!item) return null;
+                  return (
+                    <div className="flex items-center gap-3 rounded-xl border border-[#1db954]/30 bg-[#1a1a1a] p-3 shadow-2xl shadow-black/50">
+                      {item.albumImage ? (
+                        <img src={item.albumImage} alt="" className="h-12 w-12 rounded-lg shadow-md" />
+                      ) : (
+                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#2a2a2a] text-lg">🎵</div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-sm font-medium">{item.trackName}</p>
+                        <p className="truncate text-xs text-zinc-500">{item.artistName}</p>
+                      </div>
+                    </div>
+                  );
+                })() : null}
+              </DragOverlay>
             </DndContext>
           )}
         </div>
