@@ -3,6 +3,7 @@
  * These are Spotify-curated playlists that require a valid access token.
  */
 import { cached, TTL } from "./cache";
+import { requestQueue } from "./request-queue";
 
 export const CHART_PLAYLISTS = {
   'top-global': '37i9dQZEVXbMDoHDwVN2tF',
@@ -36,11 +37,13 @@ export async function getSpotifyChartTracks(
   return cached(`spotify:chart:${chart}:${limit}`, TTL.SPOTIFY_CHARTS, async () => {
     const playlistId = CHART_PLAYLISTS[chart];
 
-    const res = await fetch(
-      `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&fields=items(track(id,name,artists(id,name),album(id,name,images),uri,popularity,duration_ms,preview_url))`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }
+    const res = await requestQueue.add(() =>
+      fetch(
+        `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&fields=items(track(id,name,artists(id,name),album(id,name,images),uri,popularity,duration_ms,preview_url))`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      )
     );
 
     if (!res.ok) {

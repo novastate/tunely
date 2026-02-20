@@ -1,4 +1,5 @@
 import { cached, TTL } from "./cache";
+import { requestQueue } from "./request-queue";
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY || '';
 const LASTFM_BASE = 'https://ws.audioscrobbler.com/2.0/';
@@ -26,9 +27,11 @@ async function lastfmFetch(params: Record<string, string>) {
     format: 'json',
   });
   try {
-    const res = await fetch(`${LASTFM_BASE}?${searchParams}`, {
-      signal: AbortSignal.timeout(5000),
-    });
+    const res = await requestQueue.add(() =>
+      fetch(`${LASTFM_BASE}?${searchParams}`, {
+        signal: AbortSignal.timeout(5000),
+      })
+    );
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {

@@ -1,4 +1,5 @@
 import { getRecommendations, SpotifyTrack, searchArtists, getAudioFeatures, AudioFeatures } from "./spotify";
+import { requestQueue } from "./request-queue";
 import * as lastfm from "./lastfm";
 import { isNameMatch, genreAffinity, MIN_GENRE_AFFINITY } from "./discovery-filters";
 import { getSpotifyChartTracks, ChartType } from "./spotify-charts";
@@ -56,9 +57,11 @@ async function searchSpotifyTrack(
   accessToken: string
 ): Promise<SpotifyTrack | null> {
   const q = `track:${trackName} artist:${artistName}`;
-  const res = await fetch(
-    `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=5`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
+  const res = await requestQueue.add(() =>
+    fetch(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=5`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
   );
   if (!res.ok) return null;
   const data = await res.json();

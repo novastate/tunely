@@ -1,3 +1,5 @@
+import { requestQueue } from "./request-queue";
+
 const SPOTIFY_API = "https://api.spotify.com/v1";
 
 export interface SpotifyTrack {
@@ -61,9 +63,11 @@ export async function getRecommendations(params: {
 
     // Add randomness via offset to avoid always getting same tracks
     const offset = Math.floor(Math.random() * 20);
-    const res = await fetch(
-      `${SPOTIFY_API}/search?q=${encodeURIComponent(q)}&type=track&limit=${perQuery}&offset=${offset}`,
-      { headers: { Authorization: `Bearer ${params.accessToken}` } }
+    const res = await requestQueue.add(() =>
+      fetch(
+        `${SPOTIFY_API}/search?q=${encodeURIComponent(q)}&type=track&limit=${perQuery}&offset=${offset}`,
+        { headers: { Authorization: `Bearer ${params.accessToken}` } }
+      )
     );
 
     if (!res.ok) {
@@ -101,9 +105,11 @@ export async function fetchTopArtists(
   accessToken: string,
   limit = 20
 ): Promise<SpotifyArtist[]> {
-  const res = await fetch(
-    `${SPOTIFY_API}/me/top/artists?limit=${limit}&time_range=medium_term`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
+  const res = await requestQueue.add(() =>
+    fetch(
+      `${SPOTIFY_API}/me/top/artists?limit=${limit}&time_range=medium_term`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
   );
   if (!res.ok) return [];
   const data: SpotifyTopArtistsResponse = await res.json();
@@ -117,9 +123,11 @@ export async function getArtist(
   accessToken: string,
   artistId: string
 ): Promise<SpotifyArtist | null> {
-  const res = await fetch(`${SPOTIFY_API}/artists/${artistId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const res = await requestQueue.add(() =>
+    fetch(`${SPOTIFY_API}/artists/${artistId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+  );
   if (!res.ok) return null;
   return await res.json();
 }
@@ -130,9 +138,11 @@ export async function searchArtists(
   limit = 10
 ): Promise<SpotifyArtist[]> {
   if (!query.trim()) return [];
-  const res = await fetch(
-    `${SPOTIFY_API}/search?q=${encodeURIComponent(query)}&type=artist&limit=${limit}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
+  const res = await requestQueue.add(() =>
+    fetch(
+      `${SPOTIFY_API}/search?q=${encodeURIComponent(query)}&type=artist&limit=${limit}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
   );
   if (!res.ok) return [];
   const data = await res.json();
@@ -163,9 +173,11 @@ export async function getAudioFeatures(
   // Spotify allows max 100 IDs per request
   for (let i = 0; i < trackIds.length; i += 100) {
     const batch = trackIds.slice(i, i + 100);
-    const res = await fetch(
-      `${SPOTIFY_API}/audio-features?ids=${batch.join(',')}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+    const res = await requestQueue.add(() =>
+      fetch(
+        `${SPOTIFY_API}/audio-features?ids=${batch.join(',')}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      )
     );
     if (!res.ok) continue;
     const data = await res.json();
