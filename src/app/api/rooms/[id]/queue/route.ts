@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { rateLimitPreset } from "@/lib/rate-limit";
 import { getAuthIdentity, isAuthenticated, verifyRoomAccess } from "@/lib/room-auth";
+import { queueEvents } from "@/lib/queue-events";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -72,6 +73,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       durationMs: durationMs ?? 0,
     },
   });
+
+  // Notify SSE listeners
+  queueEvents.notify(id, "queue-update", { action: "add", itemId: item.id });
 
   return NextResponse.json(item);
 }

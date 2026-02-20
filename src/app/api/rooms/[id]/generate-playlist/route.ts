@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generatePlaylistForRoom, MemberPreferences, PlaylistMode } from "@/lib/playlist-generator";
+import { createJob } from "@/lib/job-queue";
 
 export async function POST(
   req: NextRequest,
@@ -75,10 +76,29 @@ export async function POST(
     return NextResponse.json({ error: "No members with preferences" }, { status: 400 });
   }
 
+  const accessToken = session.accessToken as string;
+
+  // Check if client wants async execution
+  let async = false;
+  try {
+    const body = await req.clone().json().catch(() => ({}));
+    async = body.async === true;
+  } catch {}
+
+  if (async) {
+    // Return job ID immediately, generate in background
+    const job = createJob(async () => {
+      const tracks = await generatePlaylistForRoom(memberPrefs, accessToken, totalTracks, mode);
+      return { tracks, memberCount: memberPrefs.length };
+    });
+    return NextResponse.json({ jobId: job.id, status: "pending" }, { status: 202 });
+  }
+
+  // Synchronous (default for backwards compatibility)
   try {
     const tracks = await generatePlaylistForRoom(
       memberPrefs,
-      session.accessToken as string,
+      accessToken,
       totalTracks,
       mode
     );

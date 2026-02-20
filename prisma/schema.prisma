@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -95,13 +95,26 @@ model QueueItem {
   albumImage String?
   durationMs Int
   votes      Int       @default(0)
-  votedBy    String    @default("[]")
+  votedBy    String    @default("[]") // Legacy - kept for compat
   playedAt   DateTime?
   addedAt    DateTime  @default(now())
   room       Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  voteRecords Vote[]
 
   @@index([roomId])
   @@index([roomId, votes])
+}
+
+model Vote {
+  id          String    @id @default(cuid())
+  queueItemId String
+  userId      String
+  createdAt   DateTime  @default(now())
+
+  queueItem   QueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+
+  @@unique([queueItemId, userId])
+  @@index([queueItemId])
 }
 
 model Friend {

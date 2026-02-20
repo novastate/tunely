@@ -2,6 +2,7 @@ import { rateLimitPreset } from "@/lib/rate-limit";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthIdentity, isAuthenticated, verifyRoomAccess } from "@/lib/room-auth";
+import { queueEvents } from "@/lib/queue-events";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string; itemId: string }> }) {
   const limited = rateLimitPreset(req, "queue");
@@ -52,5 +53,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     ]);
   }
 
+  queueEvents.notify(roomId, "queue-update", { action: "reorder" });
   return NextResponse.json({ ok: true });
 }

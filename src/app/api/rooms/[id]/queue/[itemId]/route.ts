@@ -2,6 +2,7 @@ import { rateLimitPreset } from "@/lib/rate-limit";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthIdentity, isAuthenticated, verifyRoomAccess, verifyRoomOwner } from "@/lib/room-auth";
+import { queueEvents } from "@/lib/queue-events";
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string; itemId: string }> }) {
   const limited = rateLimitPreset(_req, "general");
@@ -31,5 +32,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   }
 
   await prisma.queueItem.delete({ where: { id: itemId } });
+  queueEvents.notify(id, "queue-update", { action: "remove", itemId });
   return NextResponse.json({ ok: true });
 }
