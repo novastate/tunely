@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { rateLimitCheck } from "@/lib/rate-limit";
+import { rateLimitPreset } from "@/lib/rate-limit";
 import { getAuthIdentity, isAuthenticated, verifyRoomAccess } from "@/lib/room-auth";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -39,7 +39,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const limited = rateLimitCheck(req);
+  const limited = rateLimitPreset(req, "queue");
   if (limited) return limited;
   const { id } = await params;
   const identity = await getAuthIdentity(req);

@@ -1,8 +1,11 @@
+import { rateLimitPreset } from "@/lib/rate-limit";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthIdentity, isAuthenticated, verifyRoomAccess } from "@/lib/room-auth";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const limited = rateLimitPreset(req, "general");
+  if (limited) return limited;
   const { id } = await params;
   const identity = await getAuthIdentity(req);
 

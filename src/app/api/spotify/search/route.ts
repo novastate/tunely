@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { searchArtists } from "@/lib/spotify";
 import { getServerSpotifyToken } from "@/lib/spotify-server";
-import { rateLimitCheck } from "@/lib/rate-limit";
+import { rateLimitPreset } from "@/lib/rate-limit";
 
 export async function GET(req: Request) {
-  const limited = rateLimitCheck(req, 30); // Higher limit for search
+  const limited = rateLimitPreset(req, "search");
   if (limited) return limited;
   const session = await getServerSession(authOptions);
   if (!session) {

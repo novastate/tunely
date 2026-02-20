@@ -1,4 +1,5 @@
 import { getServerSession } from "next-auth";
+import { rateLimitPreset } from "@/lib/rate-limit";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -6,6 +7,8 @@ import jwt from "jsonwebtoken";
 import { createGuestToken, getGuestFromRequest } from "@/lib/guest-auth";
 
 export async function POST(req: Request) {
+  const limited = rateLimitPreset(req, "roomJoin");
+  if (limited) return limited;
   const session = await getServerSession(authOptions);
   const { code, token, guestName } = await req.json();
 
@@ -81,8 +84,8 @@ export async function POST(req: Request) {
     data: { roomId: room.id, guestId, guestName: guestName.trim() },
   });
 
-  // Return the JWT so the client can store it
-  const response = NextResponse.json({ ...room, guestToken: guestJwt });
+  // Set guest token ONLY as httpOnly cookie - never in JSON response
+  const response = NextResponse.json(room);
   // Also set as httpOnly cookie for API requests
   response.cookies.set("guestToken", guestJwt, {
     httpOnly: true,

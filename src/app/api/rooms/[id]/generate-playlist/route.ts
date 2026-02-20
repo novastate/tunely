@@ -1,3 +1,4 @@
+import { rateLimitPreset } from "@/lib/rate-limit";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -8,6 +9,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const limited = rateLimitPreset(req, "generate");
+  if (limited) return limited;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id || !session.accessToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

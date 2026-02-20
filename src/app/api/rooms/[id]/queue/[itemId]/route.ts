@@ -1,8 +1,11 @@
+import { rateLimitPreset } from "@/lib/rate-limit";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthIdentity, isAuthenticated, verifyRoomAccess, verifyRoomOwner } from "@/lib/room-auth";
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string; itemId: string }> }) {
+  const limited = rateLimitPreset(_req, "general");
+  if (limited) return limited;
   const { id, itemId } = await params;
   const identity = await getAuthIdentity(_req);
 

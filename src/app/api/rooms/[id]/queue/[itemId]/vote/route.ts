@@ -1,3 +1,4 @@
+import { rateLimitPreset } from "@/lib/rate-limit";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthIdentity, isAuthenticated, verifyRoomAccess } from "@/lib/room-auth";
@@ -15,6 +16,8 @@ async function getItemAndValidate(roomId: string, itemId: string, voterId: strin
 
 // Toggle vote
 export async function PUT(req: Request, { params }: Params) {
+  const limited = rateLimitPreset(req, "vote");
+  if (limited) return limited;
   const { id, itemId } = await params;
   const identity = await getAuthIdentity(req);
 
@@ -60,6 +63,8 @@ export { PUT as POST };
 
 // Explicit unvote
 export async function DELETE(req: Request, { params }: Params) {
+  const limited = rateLimitPreset(req, "vote");
+  if (limited) return limited;
   const { id, itemId } = await params;
   const identity = await getAuthIdentity(req);
 

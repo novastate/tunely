@@ -1,9 +1,12 @@
+import { rateLimitPreset } from "@/lib/rate-limit";
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(req: Request) {
+  const limited = rateLimitPreset(req, "general");
+  if (limited) return limited;
   const url = new URL(req.url);
   const type = url.searchParams.get("type"); // "received" for logged-in users
   const guestId = url.searchParams.get("guestId");

@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { rateLimitCheck } from "@/lib/rate-limit";
+import { rateLimitPreset } from "@/lib/rate-limit";
 
 function generateCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -12,7 +12,7 @@ function generateCode(): string {
 }
 
 export async function POST(req: Request) {
-  const limited = rateLimitCheck(req);
+  const limited = rateLimitPreset(req, "roomCreate");
   if (limited) return limited;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

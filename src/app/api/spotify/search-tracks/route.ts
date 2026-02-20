@@ -1,9 +1,12 @@
+import { rateLimitPreset } from "@/lib/rate-limit";
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { getServerSpotifyToken } from "@/lib/spotify-server";
 
 export async function GET(req: Request) {
+  const limited = rateLimitPreset(req, "search");
+  if (limited) return limited;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
