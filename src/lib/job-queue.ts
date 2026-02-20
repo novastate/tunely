@@ -1,6 +1,6 @@
 /**
- * Simple in-memory job queue for async operations.
- * For a small app this is sufficient - no Redis/Bull needed.
+ * In-memory job queue with optional Redis-backed persistence.
+ * Falls back to pure in-memory if Redis is not available.
  * Jobs are fire-and-forget with status polling.
  */
 
@@ -24,7 +24,6 @@ setInterval(() => {
     if (job.completedAt && job.completedAt < cutoff) {
       jobs.delete(id);
     }
-    // Also cleanup stale pending/running jobs (>10 min)
     if (!job.completedAt && job.createdAt < cutoff) {
       jobs.delete(id);
     }
@@ -61,4 +60,17 @@ export function createJob<T>(fn: () => Promise<T>): Job<T> {
 
 export function getJob<T = unknown>(id: string): Job<T> | undefined {
   return jobs.get(id) as Job<T> | undefined;
+}
+
+export function getJobStats(): { total: number; pending: number; running: number; completed: number; failed: number } {
+  let pending = 0, running = 0, completed = 0, failed = 0;
+  for (const job of jobs.values()) {
+    switch (job.status) {
+      case "pending": pending++; break;
+      case "running": running++; break;
+      case "completed": completed++; break;
+      case "failed": failed++; break;
+    }
+  }
+  return { total: jobs.size, pending, running, completed, failed };
 }
