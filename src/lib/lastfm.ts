@@ -1,3 +1,5 @@
+import { cached, TTL } from "./cache";
+
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY || '';
 const LASTFM_BASE = 'https://ws.audioscrobbler.com/2.0/';
 
@@ -46,38 +48,46 @@ export async function getSimilarTracks(artist: string, track: string, limit = 10
 }
 
 export async function getSimilarArtists(artist: string, limit = 10): Promise<LastfmArtist[]> {
-  const data = await lastfmFetch({
-    method: 'artist.getSimilar',
-    artist,
-    limit: String(limit),
+  return cached(`lastfm:similar:${artist.toLowerCase()}:${limit}`, TTL.LASTFM_SIMILAR, async () => {
+    const data = await lastfmFetch({
+      method: 'artist.getSimilar',
+      artist,
+      limit: String(limit),
+    });
+    return data?.similarartists?.artist || [];
   });
-  return data?.similarartists?.artist || [];
 }
 
 export async function getTopTracks(artist: string, limit = 10): Promise<LastfmTrack[]> {
-  const data = await lastfmFetch({
-    method: 'artist.getTopTracks',
-    artist,
-    limit: String(limit),
+  return cached(`lastfm:top:${artist.toLowerCase()}:${limit}`, TTL.LASTFM_TOP_TRACKS, async () => {
+    const data = await lastfmFetch({
+      method: 'artist.getTopTracks',
+      artist,
+      limit: String(limit),
+    });
+    return data?.toptracks?.track || [];
   });
-  return data?.toptracks?.track || [];
 }
 
 export async function getChartTopTracks(limit = 10): Promise<LastfmTrack[]> {
-  const data = await lastfmFetch({
-    method: 'chart.getTopTracks',
-    limit: String(limit),
+  return cached(`lastfm:chart:${limit}`, TTL.LASTFM_CHARTS, async () => {
+    const data = await lastfmFetch({
+      method: 'chart.getTopTracks',
+      limit: String(limit),
+    });
+    return data?.tracks?.track || [];
   });
-  return data?.tracks?.track || [];
 }
 
 export async function getTagTopTracks(tag: string, limit = 10): Promise<LastfmTrack[]> {
-  const data = await lastfmFetch({
-    method: 'tag.getTopTracks',
-    tag,
-    limit: String(limit),
+  return cached(`lastfm:tag:${tag.toLowerCase()}:${limit}`, TTL.LASTFM_CHARTS, async () => {
+    const data = await lastfmFetch({
+      method: 'tag.getTopTracks',
+      tag,
+      limit: String(limit),
+    });
+    return data?.tracks?.track || [];
   });
-  return data?.tracks?.track || [];
 }
 
 export function isAvailable(): boolean {

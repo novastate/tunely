@@ -2,6 +2,7 @@
  * Spotify Charts via official chart playlists.
  * These are Spotify-curated playlists that require a valid access token.
  */
+import { cached, TTL } from "./cache";
 
 export const CHART_PLAYLISTS = {
   'top-global': '37i9dQZEVXbMDoHDwVN2tF',
@@ -32,23 +33,25 @@ export async function getSpotifyChartTracks(
   chart: ChartType = 'viral-global',
   limit = 20
 ): Promise<ChartTrack[]> {
-  const playlistId = CHART_PLAYLISTS[chart];
+  return cached(`spotify:chart:${chart}:${limit}`, TTL.SPOTIFY_CHARTS, async () => {
+    const playlistId = CHART_PLAYLISTS[chart];
 
-  const res = await fetch(
-    `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&fields=items(track(id,name,artists(id,name),album(id,name,images),uri,popularity,duration_ms,preview_url))`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` },
+    const res = await fetch(
+      `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&fields=items(track(id,name,artists(id,name),album(id,name,images),uri,popularity,duration_ms,preview_url))`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    if (!res.ok) {
+      console.error(`Spotify charts fetch failed for ${chart}:`, res.status);
+      return [];
     }
-  );
 
-  if (!res.ok) {
-    console.error(`Spotify charts fetch failed for ${chart}:`, res.status);
-    return [];
-  }
+    const data = await res.json();
 
-  const data = await res.json();
-
-  return (data.items ?? [])
-    .filter((item: any) => item.track && item.track.id)
-    .map((item: any) => item.track as ChartTrack);
+    return (data.items ?? [])
+      .filter((item: any) => item.track && item.track.id)
+      .map((item: any) => item.track as ChartTrack);
+  });
 }

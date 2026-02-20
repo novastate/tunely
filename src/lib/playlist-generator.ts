@@ -76,6 +76,7 @@ async function searchSpotifyTrack(
 
 /**
  * Use Last.fm to discover tracks for given artists, then resolve on Spotify.
+ * Parallelized: similar artist lookups and track resolution run concurrently.
  */
 async function discoverViaLastfm(
   artists: string[],
@@ -88,61 +89,80 @@ async function discoverViaLastfm(
   const results: GeneratedTrack[] = [];
   const usedIds = new Set<string>();
 
-  for (const artist of artists) {
-    if (results.length >= limit) break;
+  // Fully parallel: process ALL seed artists concurrently
+  const perArtistTracks = await Promise.allSettled(
+    artists.map(async (artist) => {
+      const similarArtists = await lastfm.getSimilarArtists(artist, 8);
 
-    const similarArtists = await lastfm.getSimilarArtists(artist, 8);
-    
-    // Verify & rank similar artists by genre affinity to user's taste
-    const scored: { name: string; affinity: number }[] = [];
-    for (const sim of similarArtists) {
-      // Skip fuzzy name collisions: "DJO" should not match "Djojji"
-      if (isNameMatch(artist, sim.name) && sim.name.toLowerCase() !== artist.toLowerCase()) {
-        continue;
-      }
-      
-      // Verify on Spotify — check name match and genre affinity
-      const spotifyResults = await searchArtists(accessToken, sim.name, 1);
-      if (spotifyResults.length > 0) {
-        const sa = spotifyResults[0];
-        if (!isNameMatch(sim.name, sa.name)) continue;
-        
-        // Score by genre overlap with user's profile
-        const affinity = userGenres.length > 0
-          ? genreAffinity(userGenres, sa.genres)
-          : 1; // No user genres → accept all (backwards compat)
-        
-        if (affinity >= MIN_GENRE_AFFINITY) {
-          scored.push({ name: sa.name, affinity });
-        }
-      }
-      if (scored.length >= 5) break;
-    }
-    
-    // Sort by affinity — most genre-aligned first
-    scored.sort((a, b) => b.affinity - a.affinity);
-    const verifiedSimilar = scored.slice(0, 3).map(s => s.name);
-    
-    const artistsToFetch = [artist, ...verifiedSimilar].slice(0, 4);
+      const filtered = similarArtists.filter(sim =>
+        !(isNameMatch(artist, sim.name) && sim.name.toLowerCase() !== artist.toLowerCase())
+      );
 
-    for (const fetchArtist of artistsToFetch) {
-      if (results.length >= limit) break;
-      const topTracks = await lastfm.getTopTracks(fetchArtist, 3);
+      const verifyResults = await Promise.allSettled(
+        filtered.map(async (sim) => {
+          const spotifyResults = await searchArtists(accessToken, sim.name, 1);
+          if (spotifyResults.length === 0) return null;
+          const sa = spotifyResults[0];
+          if (!isNameMatch(sim.name, sa.name)) return null;
+          const affinity = userGenres.length > 0
+            ? genreAffinity(userGenres, sa.genres)
+            : 1;
+          if (affinity < MIN_GENRE_AFFINITY) return null;
+          return { name: sa.name, affinity };
+        })
+      );
 
-      for (const t of topTracks) {
-        if (results.length >= limit) break;
-        const spotifyTrack = await searchSpotifyTrack(t.name, t.artist.name, accessToken);
-        if (spotifyTrack && !usedIds.has(spotifyTrack.id)) {
-          usedIds.add(spotifyTrack.id);
+      const scored = verifyResults
+        .filter((r): r is PromiseFulfilledResult<{ name: string; affinity: number } | null> =>
+          r.status === "fulfilled" && r.value !== null
+        )
+        .map(r => r.value!)
+        .sort((a, b) => b.affinity - a.affinity)
+        .slice(0, 3);
+
+      const artistsToFetch = [artist, ...scored.map(s => s.name)].slice(0, 4);
+
+      const allTopTracks = await Promise.all(
+        artistsToFetch.map(async (fetchArtist) => ({
+          artist: fetchArtist,
+          tracks: await lastfm.getTopTracks(fetchArtist, 3),
+        }))
+      );
+
+      const trackCandidates = allTopTracks.flatMap(({ artist: fetchArtist, tracks }) =>
+        tracks.map(t => ({ fetchArtist, track: t }))
+      );
+
+      const resolvedTracks = await Promise.allSettled(
+        trackCandidates.map(async ({ fetchArtist, track: t }) => {
+          const spotifyTrack = await searchSpotifyTrack(t.name, t.artist.name, accessToken);
+          if (!spotifyTrack) return null;
           const isDiscovery = fetchArtist !== artist;
-          results.push({
+          return {
             ...spotifyTrack,
-            reason: isDiscovery
-              ? `🔍 Liknande ${artist}`
-              : reason,
+            reason: isDiscovery ? `🔍 Liknande ${artist}` : reason,
             forMembers,
-          });
-        }
+          } as GeneratedTrack;
+        })
+      );
+
+      return resolvedTracks
+        .filter((r): r is PromiseFulfilledResult<GeneratedTrack> =>
+          r.status === "fulfilled" && r.value !== null
+        )
+        .map(r => r.value);
+    })
+  );
+
+  // Merge all artist results, dedup
+  for (const artistResult of perArtistTracks) {
+    if (results.length >= limit) break;
+    if (artistResult.status !== "fulfilled") continue;
+    for (const track of artistResult.value) {
+      if (results.length >= limit) break;
+      if (!usedIds.has(track.id)) {
+        usedIds.add(track.id);
+        results.push(track);
       }
     }
   }
@@ -327,94 +347,44 @@ export async function generatePlaylistForRoom(
   const individualBudget = remaining - sharedCount;
   const perMemberCount = Math.max(1, Math.floor(individualBudget / members.length));
 
-  const result: GeneratedTrack[] = [];
   const usedTrackIds = new Set<string>();
 
-  // --- Task 3: Trending tracks ---
-  if (trendingCount > 0) {
-    const trending = await getTrendingTracks(accessToken, trendingCount, mode);
-    for (const t of trending) {
-      if (!usedTrackIds.has(t.id)) {
-        usedTrackIds.add(t.id);
-        result.push(t);
-      }
-    }
-  }
+  // === PARALLEL EXECUTION: Run trending, shared, and individual tasks concurrently ===
 
-  // --- Shared taste tracks ---
-  if (sharedCount > 0 && sharedGenres.length > 0) {
-    const memberNames = [
-      ...new Set(sharedGenres.slice(0, 3).flatMap((g) => g.members)),
-    ];
-    const sharedArtists = members
-      .flatMap((m) => m.artists.slice(0, 2).map((a) => a.value))
-      .slice(0, 4);
+  // Prepare shared taste data
+  const memberNames = sharedGenres.length > 0
+    ? [...new Set(sharedGenres.slice(0, 3).flatMap((g) => g.members))]
+    : [];
+  const sharedArtists = members
+    .flatMap((m) => m.artists.slice(0, 2).map((a) => a.value))
+    .slice(0, 4);
+  const allMemberGenres = [...new Set(members.flatMap(m => (m.genres ?? []).map(g => g.value)))];
 
-    if (useLastfm && sharedArtists.length > 0) {
-      // Collect all member genres for affinity scoring
-      const allMemberGenres = [...new Set(members.flatMap(m => (m.genres ?? []).map(g => g.value)))];
-      const discovered = await discoverViaLastfm(
+  // Task A: Trending tracks (runs in parallel)
+  const trendingPromise = trendingCount > 0
+    ? getTrendingTracks(accessToken, trendingCount, mode)
+    : Promise.resolve([] as GeneratedTrack[]);
+
+  // Task B: Shared taste via Last.fm (runs in parallel)
+  const sharedLastfmPromise = (sharedCount > 0 && sharedGenres.length > 0 && useLastfm && sharedArtists.length > 0)
+    ? discoverViaLastfm(
         sharedArtists.slice(0, 3),
         accessToken,
         sharedCount,
         `🤝 Gemensam smak: ${sharedGenres.slice(0, 2).map(g => g.genre).join(", ")}`,
         memberNames,
         allMemberGenres
-      );
-      for (const t of discovered) {
-        if (result.length >= trendingCount + sharedCount) break;
-        if (!usedTrackIds.has(t.id)) {
-          usedTrackIds.add(t.id);
-          result.push(t);
-        }
-      }
-    }
+      )
+    : Promise.resolve([] as GeneratedTrack[]);
 
-    // Fill with Spotify search fallback
-    const currentShared = result.length - trendingCount;
-    if (currentShared < sharedCount) {
-      const seedGenres = sharedGenres.slice(0, 3).map((g) => g.genre);
-      const seedArtists = sharedArtists.slice(0, 2);
-
-      // Task 4: Add mode-specific genre bias
-      const modeGenres = MODE_CONFIGS[mode].tags;
-      const combinedGenres = mode !== "mixed"
-        ? [...modeGenres.slice(0, 2), ...seedGenres.slice(0, 1)]
-        : seedGenres;
-
-      const tracks = await getRecommendations({
-        seedGenres: combinedGenres.slice(0, Math.max(1, 5 - seedArtists.length)),
-        seedArtists,
-        limit: sharedCount - currentShared,
-        accessToken,
-      });
-      for (const t of tracks) {
-        if (result.length >= trendingCount + sharedCount) break;
-        if (!usedTrackIds.has(t.id)) {
-          usedTrackIds.add(t.id);
-          result.push({
-            ...t,
-            reason: `🤝 Gemensam: ${seedGenres.slice(0, 2).join(", ")}`,
-            forMembers: memberNames,
-          });
-        }
-      }
-    }
-  }
-
-  // --- Individual picks per member (Task 5: use ALL genres, shuffled) ---
-  for (const member of members) {
-    // Task 5: Use ALL genres from member, not just top 1-2
+  // Task C: Individual member discovery via Last.fm (all members in parallel)
+  const individualPromises = members.map(async (member) => {
     const memberGenres = (member.genres ?? []).map(g => g.value);
-    const shuffledGenres = shuffle(memberGenres);
-
-    // Distribute picks across multiple genre groups
     const memberArtists = member.artists.slice(0, 3).map((a) => a.value);
-    if (shuffledGenres.length === 0 && memberArtists.length === 0) continue;
+    if (memberGenres.length === 0 && memberArtists.length === 0) return [] as GeneratedTrack[];
 
-    let added = 0;
+    const tracks: GeneratedTrack[] = [];
 
-    // Try Last.fm discovery first
     if (useLastfm && memberArtists.length > 0) {
       const artistLabel = memberArtists[0] ?? "musik";
       const discovered = await discoverViaLastfm(
@@ -425,53 +395,113 @@ export async function generatePlaylistForRoom(
         [member.displayName],
         memberGenres
       );
-      for (const t of discovered) {
-        if (added >= perMemberCount) break;
-        if (!usedTrackIds.has(t.id)) {
-          usedTrackIds.add(t.id);
-          result.push(t);
-          added++;
-        }
-      }
+      tracks.push(...discovered);
     }
 
-    // Fill remaining with Spotify search — rotate through ALL genres
-    if (added < perMemberCount) {
-      const needed = perMemberCount - added;
-      // Split needed tracks across genre groups
-      const genreGroups = shuffledGenres.length > 0
-        ? shuffledGenres
-        : ["pop"]; // fallback
-
+    // Fill remaining with Spotify recommendations
+    if (tracks.length < perMemberCount) {
+      const needed = perMemberCount - tracks.length;
+      const shuffledGenres = shuffle(memberGenres);
+      const genreGroups = shuffledGenres.length > 0 ? shuffledGenres : ["pop"];
       const perGenre = Math.max(1, Math.ceil(needed / Math.min(genreGroups.length, 4)));
+      const existingIds = new Set(tracks.map(t => t.id));
 
-      for (let gi = 0; gi < Math.min(genreGroups.length, 4) && added < perMemberCount; gi++) {
-        const genre = genreGroups[gi];
-
-        // Task 4: Combine with mode tags
-        const modeGenres = MODE_CONFIGS[mode].tags;
-        const seedGenres = mode !== "mixed"
-          ? [genre, ...modeGenres.slice(0, 1)]
-          : [genre];
-
-        const tracks = await getRecommendations({
-          seedGenres: seedGenres.slice(0, Math.max(1, 5 - memberArtists.length)),
-          seedArtists: memberArtists.slice(0, 2),
-          limit: perGenre + 2,
-          accessToken,
-        });
-
-        for (const t of tracks) {
-          if (added >= perMemberCount) break;
-          if (usedTrackIds.has(t.id)) continue;
-          usedTrackIds.add(t.id);
-          result.push({
+      // Parallelize genre-based recommendations
+      const genreResults = await Promise.all(
+        genreGroups.slice(0, 4).map(async (genre) => {
+          const modeGenres = MODE_CONFIGS[mode].tags;
+          const seedGenres = mode !== "mixed" ? [genre, ...modeGenres.slice(0, 1)] : [genre];
+          return getRecommendations({
+            seedGenres: seedGenres.slice(0, Math.max(1, 5 - memberArtists.length)),
+            seedArtists: memberArtists.slice(0, 2),
+            limit: perGenre + 2,
+            accessToken,
+          }).then(recs => recs.map(t => ({
             ...t,
             reason: `🎹 ${member.displayName}s ${genre}`,
             forMembers: [member.displayName],
-          });
+          } as GeneratedTrack)));
+        })
+      );
+
+      let added = 0;
+      for (const recs of genreResults) {
+        for (const t of recs) {
+          if (tracks.length >= perMemberCount) break;
+          if (existingIds.has(t.id)) continue;
+          existingIds.add(t.id);
+          tracks.push(t);
           added++;
         }
+        if (added >= needed) break;
+      }
+    }
+
+    return tracks;
+  });
+
+  // === AWAIT ALL IN PARALLEL ===
+  const [trendingTracks, sharedTracks, ...individualResults] = await Promise.all([
+    trendingPromise,
+    sharedLastfmPromise,
+    ...individualPromises,
+  ]);
+
+  // === MERGE RESULTS (dedup by track ID) ===
+  const result: GeneratedTrack[] = [];
+
+  // Add trending
+  for (const t of trendingTracks) {
+    if (!usedTrackIds.has(t.id)) {
+      usedTrackIds.add(t.id);
+      result.push(t);
+    }
+  }
+
+  // Add shared taste
+  for (const t of sharedTracks) {
+    if (result.length >= trendingCount + sharedCount) break;
+    if (!usedTrackIds.has(t.id)) {
+      usedTrackIds.add(t.id);
+      result.push(t);
+    }
+  }
+
+  // Fill shared with Spotify recommendations if needed
+  const currentShared = result.length - trendingTracks.length;
+  if (currentShared < sharedCount && sharedGenres.length > 0) {
+    const seedGenres = sharedGenres.slice(0, 3).map((g) => g.genre);
+    const seedArtistsList = sharedArtists.slice(0, 2);
+    const modeGenres = MODE_CONFIGS[mode].tags;
+    const combinedGenres = mode !== "mixed"
+      ? [...modeGenres.slice(0, 2), ...seedGenres.slice(0, 1)]
+      : seedGenres;
+
+    const tracks = await getRecommendations({
+      seedGenres: combinedGenres.slice(0, Math.max(1, 5 - seedArtistsList.length)),
+      seedArtists: seedArtistsList,
+      limit: sharedCount - currentShared,
+      accessToken,
+    });
+    for (const t of tracks) {
+      if (result.length >= trendingCount + sharedCount) break;
+      if (!usedTrackIds.has(t.id)) {
+        usedTrackIds.add(t.id);
+        result.push({
+          ...t,
+          reason: `🤝 Gemensam: ${seedGenres.slice(0, 2).join(", ")}`,
+          forMembers: memberNames,
+        });
+      }
+    }
+  }
+
+  // Add individual member tracks
+  for (const memberTracks of individualResults) {
+    for (const t of memberTracks) {
+      if (!usedTrackIds.has(t.id)) {
+        usedTrackIds.add(t.id);
+        result.push(t);
       }
     }
   }
