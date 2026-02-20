@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import { useQueue, QueueItem } from "@/hooks/useQueue";
 import { MiniPlayer } from "@/components/MiniPlayer";
+import { ExportPlaylistModal } from "@/components/ExportPlaylistModal";
 import { RoomQRCode } from "@/components/RoomQRCode";
 import { InviteFriends } from "@/components/InviteFriends";
 import { getGuestFromCookies } from "@/lib/guest";
@@ -615,6 +616,7 @@ export default function RoomPage() {
   const [codeCopied, setCodeCopied] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [guestInfo, setGuestInfo] = useState<{ guestId: string; guestName: string } | null>(null);
 
   const isGuest = status === "unauthenticated" && !!guestInfo;
@@ -730,6 +732,14 @@ export default function RoomPage() {
             <span className="rounded-full bg-[#1db954]/15 px-3 py-1 text-sm font-medium text-[#1db954]">
               {queue.length} låtar
             </span>
+            {queue.length > 0 && (
+              <button
+                onClick={() => setShowExportModal(true)}
+                className="rounded-full bg-purple-600/15 px-3 py-1 text-sm font-medium text-purple-400 transition hover:bg-purple-600/25 active:scale-95"
+              >
+                📤 Exportera
+              </button>
+            )}
             {room && (
               <span className="rounded-full bg-zinc-800 px-3 py-1 text-sm text-zinc-400">
                 👥 {room._count.members}
@@ -877,6 +887,13 @@ export default function RoomPage() {
           </div>
         </div>
       </div>
+
+      {/* Export Playlist Modal */}
+      <ExportPlaylistModal
+        tracks={queue}
+        open={showExportModal}
+        onClose={() => setShowExportModal(false)}
+      />
 
       <MiniPlayer
         queueTrackUris={queue.map((item) => `spotify:track:${item.trackId}`)}

@@ -1,6 +1,7 @@
 import { getRecommendations, SpotifyTrack, searchArtists, getAudioFeatures, AudioFeatures } from "./spotify";
 import * as lastfm from "./lastfm";
 import { isNameMatch, genreAffinity, MIN_GENRE_AFFINITY } from "./discovery-filters";
+import { getSpotifyChartTracks, ChartType } from "./spotify-charts";
 
 export interface MemberPreferences {
   userId: string;
