@@ -151,7 +151,9 @@ async function discoverViaLastfm(
 }
 
 /**
- * Task 3: Get trending tracks from Last.fm charts, resolved on Spotify.
+ * Task 3: Get trending tracks.
+ * Primary: Spotify Charts (real-time chart playlists) when access token available.
+ * Fallback: Last.fm charts (for email/password users without Spotify token).
  */
 async function getTrendingTracks(
   accessToken: string,
@@ -161,14 +163,57 @@ async function getTrendingTracks(
   const results: GeneratedTrack[] = [];
   const usedIds = new Set<string>();
 
+  // --- Primary: Spotify Charts ---
+  if (accessToken) {
+    try {
+      // Party/workout → Viral 50 (energetic, buzzy tracks)
+      // Other modes → Top 50 Sweden (broader appeal)
+      const chartType: ChartType = (mode === "party" || mode === "workout")
+        ? "viral-global"
+        : "top-sweden";
+
+      const chartLabel = chartType === "viral-global" ? "Viral 50" : "Top 50 Sweden";
+
+      const chartTracks = await getSpotifyChartTracks(accessToken, chartType, limit + 5);
+
+      // Shuffle to get variety across generations
+      const shuffled = shuffle(chartTracks);
+
+      for (const t of shuffled) {
+        if (results.length >= limit) break;
+        if (!usedIds.has(t.id)) {
+          usedIds.add(t.id);
+          results.push({
+            id: t.id,
+            name: t.name,
+            artists: t.artists,
+            album: t.album,
+            uri: t.uri,
+            popularity: t.popularity,
+            duration_ms: t.duration_ms,
+            preview_url: t.preview_url,
+            reason: `🔥 Trending (${chartLabel})`,
+            forMembers: ["Alla"],
+          } as GeneratedTrack);
+        }
+      }
+
+      if (results.length > 0) {
+        return results;
+      }
+      // If Spotify Charts returned nothing, fall through to Last.fm
+    } catch (err) {
+      console.error("Spotify Charts fetch error, falling back to Last.fm:", err);
+    }
+  }
+
+  // --- Fallback: Last.fm charts ---
   if (!lastfm.isAvailable()) return results;
 
-  // If mode has tags, get tracks by tag; otherwise chart top tracks
   const config = MODE_CONFIGS[mode];
   let lfmTracks: lastfm.LastfmTrack[] = [];
 
   if (mode !== "mixed" && config.tags.length > 0) {
-    // Get from mode-specific tags
     for (const tag of config.tags.slice(0, 2)) {
       const tagTracks = await lastfm.getTagTopTracks(tag, 5);
       lfmTracks.push(...tagTracks);
@@ -178,7 +223,6 @@ async function getTrendingTracks(
     lfmTracks = await lastfm.getChartTopTracks(limit * 2);
   }
 
-  // Shuffle to avoid always getting the same trending tracks
   lfmTracks = shuffle(lfmTracks);
 
   for (const t of lfmTracks) {
@@ -189,8 +233,8 @@ async function getTrendingTracks(
       results.push({
         ...spotifyTrack,
         reason: mode !== "mixed"
-          ? `🔥 Trending (${config.label})`
-          : "🔥 Trending",
+          ? `🔥 Trending (Last.fm ${config.label})`
+          : "🔥 Trending (Last.fm)",
         forMembers: ["Alla"],
       });
     }
