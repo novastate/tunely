@@ -139,6 +139,43 @@ export async function searchArtists(
   return data.artists?.items ?? [];
 }
 
+/**
+ * Get audio features for tracks (energy, danceability, valence, etc.)
+ * Used for mode-based filtering (party = high energy, dinner = low energy).
+ */
+export interface AudioFeatures {
+  id: string;
+  energy: number;
+  danceability: number;
+  valence: number;
+  tempo: number;
+  acousticness: number;
+  instrumentalness: number;
+}
+
+export async function getAudioFeatures(
+  accessToken: string,
+  trackIds: string[]
+): Promise<Map<string, AudioFeatures>> {
+  const result = new Map<string, AudioFeatures>();
+  if (trackIds.length === 0) return result;
+
+  // Spotify allows max 100 IDs per request
+  for (let i = 0; i < trackIds.length; i += 100) {
+    const batch = trackIds.slice(i, i + 100);
+    const res = await fetch(
+      `${SPOTIFY_API}/audio-features?ids=${batch.join(',')}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!res.ok) continue;
+    const data = await res.json();
+    for (const af of data.audio_features ?? []) {
+      if (af) result.set(af.id, af);
+    }
+  }
+  return result;
+}
+
 export function extractGenres(artists: SpotifyArtist[]): string[] {
   const genreCount = new Map<string, number>();
   for (const artist of artists) {

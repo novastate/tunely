@@ -1,4 +1,4 @@
-import { getRecommendations, SpotifyTrack, searchArtists } from "./spotify";
+import { getRecommendations, SpotifyTrack, searchArtists, getAudioFeatures, AudioFeatures } from "./spotify";
 import * as lastfm from "./lastfm";
 import { isNameMatch, genreAffinity, MIN_GENRE_AFFINITY } from "./discovery-filters";
 
@@ -432,5 +432,62 @@ export async function generatePlaylistForRoom(
   }
 
   // Task 5: Enforce artist diversity
-  return enforceArtistDiversity(result);
+  let filtered = enforceArtistDiversity(result);
+
+  // Mode-based energy filtering via Spotify Audio Features
+  if (mode !== "mixed" && filtered.length > 0) {
+    try {
+      const features = await getAudioFeatures(accessToken, filtered.map(t => t.id));
+      filtered = filterByModeEnergy(filtered, features, mode);
+    } catch (e) {
+      console.warn("Audio features fetch failed, skipping energy filter:", e);
+    }
+  }
+
+  return filtered;
+}
+
+/**
+ * Filter tracks by energy/danceability based on playlist mode.
+ * Removes tracks that clearly don't fit the mode's vibe.
+ * Keeps at least 60% of tracks to avoid empty playlists.
+ */
+function filterByModeEnergy(
+  tracks: GeneratedTrack[],
+  features: Map<string, AudioFeatures>,
+  mode: PlaylistMode
+): GeneratedTrack[] {
+  const minKeep = Math.ceil(tracks.length * 0.6);
+
+  const scored = tracks.map(t => {
+    const af = features.get(t.id);
+    if (!af) return { track: t, score: 0.5 }; // No data → neutral
+
+    let score: number;
+    switch (mode) {
+      case "party":
+        // High energy + danceability
+        score = af.energy * 0.5 + af.danceability * 0.4 + af.valence * 0.1;
+        break;
+      case "dinner":
+        // Low energy, acoustic, calm
+        score = (1 - af.energy) * 0.4 + af.acousticness * 0.3 + (1 - af.danceability) * 0.3;
+        break;
+      case "background":
+        // Low energy, possibly instrumental
+        score = (1 - af.energy) * 0.3 + af.instrumentalness * 0.3 + af.acousticness * 0.2 + (1 - af.danceability) * 0.2;
+        break;
+      case "workout":
+        // High energy + tempo
+        score = af.energy * 0.5 + af.danceability * 0.3 + Math.min(1, af.tempo / 150) * 0.2;
+        break;
+      default:
+        score = 0.5;
+    }
+    return { track: t, score };
+  });
+
+  // Sort by mode fitness, keep the best ones
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, Math.max(minKeep, tracks.length)).map(s => s.track);
 }

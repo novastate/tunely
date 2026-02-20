@@ -22,12 +22,22 @@ export function isNameMatch(searchName: string, resultName: string): boolean {
 
   if (s === r) return true;
 
-  // Levenshtein: allow ~30% of search name length, min 1
-  const maxDist = Math.max(1, Math.floor(s.length * 0.3));
+  // Levenshtein: max 1 edit for short names, max 2 for longer names (6+ chars)
+  const maxDist = s.length >= 6 ? 2 : 1;
   if (distance(s, r) <= maxDist) return true;
 
-  // Substring match for "feat." style names
-  if (s.length >= 3 && (r.includes(s) || s.includes(r))) return true;
+  // Substring match ONLY for "feat." / "ft." style names
+  // The shorter string must be at least 60% of the longer string's length
+  // to prevent "DJO" matching "Djojji" (3/6 = 50% < 60%)
+  if (s.length >= 3) {
+    const lenRatio = Math.min(s.length, r.length) / Math.max(s.length, r.length);
+    if (lenRatio >= 0.6 && (r.includes(s) || s.includes(r))) return true;
+
+    // Also allow if the result contains the search name as a whole word
+    // e.g. "DJO" matches "DJO feat. Someone" but not "Djojji"
+    const wordBoundary = new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    if (wordBoundary.test(r)) return true;
+  }
 
   return false;
 }
